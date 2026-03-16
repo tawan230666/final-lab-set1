@@ -1,0 +1,115 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const { pool } = require('../db/db');
+const { generateToken, verifyToken } = require('../middleware/jwtUtils');
+const router = express.Router();
+
+// Helper: log event (fire-and-forget)
+async function logEvent(level, event, userId, message, meta = {}) {
+  try {
+    await pool.query(
+      'INSERT INTO logs (level, event, user_id, message, meta) VALUES ($1, $2, $3, $4, $5)',
+      [level, event, userId, message, JSON.stringify(meta)]
+    );
+  } catch (err) {
+    // ignore logging errors
+  }
+}
+
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      'INSERT INTO users (username, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role',
+      [username, email.toLowerCase(), hashedPassword, 'member']
+    );
+    const user = result.rows[0];
+    await logEvent('INFO', 'REGISTER_SUCCESS', user.id, `User ${username} registered`);
+    res.status(201).json({ message: 'Registration successful', user });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Username or email already exists' });
+    }
+    console.error(err);
+    await logEvent('ERROR', 'REGISTER_FAILED', null, err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/login
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+    const user = result.rows[0];
+    if (!user) {
+      await logEvent('WARN', 'LOGIN_FAILED', null, `Login attempt for unknown email: ${email}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      await logEvent('WARN', 'LOGIN_FAILED', user.id, `Invalid password for ${email}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    const token = generateToken({
+      sub: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role
+    });
+    await logEvent('INFO', 'LOGIN_SUCCESS', user.id, `User ${user.username} logged in`);
+    res.json({ token, user: { id: user.id, username: user.username, email: user.email, role: user.role } });
+  } catch (err) {
+    console.error(err);
+    await logEvent('ERROR', 'LOGIN_ERROR', null, err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/auth/verify
+router.get('/verify', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ valid: false });
+  try {
+    const decoded = verifyToken(token);
+    res.json({ valid: true, user: decoded });
+  } catch (err) {
+    res.status(401).json({ valid: false, error: err.message });
+  }
+});
+
+// GET /api/auth/me (returns user info from auth-db)
+router.get('/me', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const decoded = verifyToken(token);
+    const result = await pool.query(
+      'SELECT id, username, email, role, created_at, last_login FROM users WHERE id = $1',
+      [decoded.sub]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: result.rows[0] });
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// GET /api/auth/health
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'auth-service' });
+});
+
+module.exports = router;

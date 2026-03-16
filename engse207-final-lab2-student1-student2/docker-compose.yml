@@ -5,7 +5,8 @@ services:
       POSTGRES_DB: ${AUTH_DB_NAME:-authdb}
       POSTGRES_USER: ${AUTH_DB_USER:-admin}
       POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-secret}
-    ports: ["5433:5432"]
+    ports:
+      - "5433:5432"
     volumes:
       - auth-db-data:/var/lib/postgresql/data
       - ./auth-service/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -14,7 +15,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [lab2-net]
+    networks:
+      - lab2-net
 
   auth-service:
     build: ./auth-service
@@ -24,10 +26,13 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       PORT: 3001
       NODE_ENV: development
-    ports: ["3001:3001"]
+    ports:
+      - "3001:3001"
     depends_on:
-      auth-db: { condition: service_healthy }
-    networks: [lab2-net]
+      auth-db:
+        condition: service_healthy
+    networks:
+      - lab2-net
 
   task-db:
     image: postgres:15-alpine
@@ -35,7 +40,8 @@ services:
       POSTGRES_DB: ${TASK_DB_NAME:-taskdb}
       POSTGRES_USER: ${TASK_DB_USER:-admin}
       POSTGRES_PASSWORD: ${TASK_DB_PASSWORD:-secret}
-    ports: ["5434:5432"]
+    ports:
+      - "5434:5432"
     volumes:
       - task-db-data:/var/lib/postgresql/data
       - ./task-service/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -44,7 +50,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [lab2-net]
+    networks:
+      - lab2-net
 
   task-service:
     build: ./task-service
@@ -53,10 +60,13 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PORT: 3002
       NODE_ENV: development
-    ports: ["3002:3002"]
+    ports:
+      - "3002:3002"
     depends_on:
-      task-db: { condition: service_healthy }
-    networks: [lab2-net]
+      task-db:
+        condition: service_healthy
+    networks:
+      - lab2-net
 
   user-db:
     image: postgres:15-alpine
@@ -64,7 +74,8 @@ services:
       POSTGRES_DB: ${USER_DB_NAME:-userdb}
       POSTGRES_USER: ${USER_DB_USER:-admin}
       POSTGRES_PASSWORD: ${USER_DB_PASSWORD:-secret}
-    ports: ["5435:5432"]
+    ports:
+      - "5435:5432"
     volumes:
       - user-db-data:/var/lib/postgresql/data
       - ./user-service/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -73,7 +84,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [lab2-net]
+    networks:
+      - lab2-net
 
   user-service:
     build: ./user-service
@@ -82,15 +94,20 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PORT: 3003
       NODE_ENV: development
-    ports: ["3003:3003"]
+    ports:
+      - "3003:3003"
     depends_on:
-      user-db: { condition: service_healthy }
-    networks: [lab2-net]
+      user-db:
+        condition: service_healthy
+    networks:
+      - lab2-net
 
   frontend:
     build: ./frontend
-    ports: ["8080:80"]
-    networks: [lab2-net]
+    ports:
+      - "8080:80"
+    networks:
+      - lab2-net
 
 volumes:
   auth-db-data:
