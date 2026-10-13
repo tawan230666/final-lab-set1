@@ -44,7 +44,10 @@ app.post('/api/logs/internal', async (req, res) => {
 });
 
 app.get('/api/logs/', verifyAdminJWT, async (req, res) => {
-  const { service, level, event, limit = 100, offset = 0 } = req.query;
+  const { service, level, event } = req.query;
+  // Clamp paging values so one request can't dump the whole table.
+  const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 100, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
   const conditions = []; const values = []; let idx = 1;
   if (service) { conditions.push(`service = $${idx++}`); values.push(service); }
   if (level)   { conditions.push(`level = $${idx++}`);   values.push(level);   }
@@ -53,12 +56,12 @@ app.get('/api/logs/', verifyAdminJWT, async (req, res) => {
   try {
     const countResult = await pool.query(`SELECT COUNT(*) FROM logs ${where}`, values);
     const total = parseInt(countResult.rows[0].count);
-    values.push(parseInt(limit), parseInt(offset));
+    values.push(limit, offset);
     const result = await pool.query(
       `SELECT * FROM logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`,
       values
     );
-    res.json({ logs: result.rows, total, limit: parseInt(limit), offset: parseInt(offset) });
+    res.json({ logs: result.rows, total, limit, offset });
   } catch (err) { res.status(500).json({ error: 'DB error' }); }
 });
 
